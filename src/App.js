@@ -406,12 +406,16 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
 // ─────────────────────────────────────────────────────
 // 主页面
 // ─────────────────────────────────────────────────────
+const baseOptionsText = baseOptions.map(o => o.label).join('\n');
+
 function App() {
+  const [optionsText, setOptionsText] = useState(baseOptionsText);
+
   return (
     <LocaleProvider locale={zhCN}>
       <main className="page">
         <header className="page-head">
-          <h1>FineDesign Select 原型</h1>
+          <h1>数分业务组件select原型</h1>
           <p>两组单/多选 Select 对比：精准命中选项，不命中时是否允许新增自定义值。</p>
         </header>
 
@@ -451,6 +455,16 @@ function App() {
               multiple
             />
           </div>
+        </div>
+
+        <div className="options-editor">
+          <div className="options-editor-label">选项列表（可编辑，复制后粘贴到上方 Select 中测试）</div>
+          <textarea
+            className="options-editor-textarea"
+            value={optionsText}
+            onChange={e => setOptionsText(e.target.value)}
+            spellCheck={false}
+          />
         </div>
       </main>
     </LocaleProvider>

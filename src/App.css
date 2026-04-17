@@ -88,6 +88,36 @@ body {
   background: var(--fd-color-fill-hover, #f5f7fa);
 }
 
+.options-editor {
+  margin-bottom: 32px;
+  display: grid;
+  gap: 8px;
+}
+
+.options-editor-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.options-editor-textarea {
+  width: 100%;
+  height: 160px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  resize: vertical;
+  outline: none;
+  line-height: 1.6;
+}
+
+.options-editor-textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
 .group {
   margin-bottom: 36px;
 }
