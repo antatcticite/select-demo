@@ -251,7 +251,7 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
       e.preventDefault();
       e.stopPropagation();
       const shouldCommit = batchKeywordsRef.current.length > 0
-        || (!multiple && searchValueRef.current.trim());
+        || searchValueRef.current.trim();
       if (shouldCommit) {
         commitRef.current();
       }
@@ -259,7 +259,7 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, multiple]); // multiple 需要列为依赖，refs 不需要
+  }, [isOpen]); // refs 不需要列为依赖
 
   return (
     <section className="field">
