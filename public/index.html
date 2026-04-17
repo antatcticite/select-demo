@@ -25,6 +25,22 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>React App</title>
+    <script>
+      // ResizeObserver loop 是 dropdown 定位时的良性浏览器警告。
+      // webpack-dev-server overlay 比 bundle.js 更早注册 error 监听器，
+      // 所以在这里提前包装 addEventListener，让它跳过该错误。
+      (function () {
+        var _orig = window.addEventListener.bind(window);
+        window.addEventListener = function (type, listener, options) {
+          if (type !== 'error') return _orig(type, listener, options);
+          return _orig(type, function (event) {
+            if (event && event.message &&
+                event.message.indexOf('ResizeObserver loop') !== -1) return;
+            return listener.apply(this, arguments);
+          }, options);
+        };
+      })();
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

@@ -1,38 +1,151 @@
-.App {
-  text-align: center;
+:root {
+  --text: #1f2937;
+  --muted: #6b7280;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+body {
+  margin: 0;
+  color: var(--text);
+  background: #fff;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.page-head {
+  margin-bottom: 24px;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.page-head p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+/* ── 让 dropdownRender 的 wrapper 成为 flex 列，用类名重排 ── */
+/*
+  DOM 顺序（由 FineDesign 决定）：
+    x-select-dropdown-search-input = SearchInput
+    x-select-list = 选项列表（含「搜索结果全选」）
+    dd-custom-kw = 我们追加在最后
+  目标视觉顺序：SearchInput → dd-custom-kw → x-select-list
+  注：不用 :nth-child，生产构建 cssnano 会把 order:0 当默认值优化掉导致顺序乱
+*/
+.dd-dropdown-flex {
   display: flex;
   flex-direction: column;
+}
+.dd-dropdown-flex > .x-select-dropdown-search-input { order: 0; }
+.dd-dropdown-flex > .dd-custom-kw                   { order: 1; }
+.dd-dropdown-flex > .x-select-list                  { order: 2; }
+
+/* ── 自定义值预览行 ── */
+.dd-custom-kw {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  height: var(--fd-control-height);   /* 32px，与选项行一致 */
+  /* 左边距 = 选项基础 padding(8px) + checkbox(16px) + gap(8px)，让文字与选项文字左对齐 */
+  padding: 0 var(--fd-padding) 0 calc(var(--fd-padding) + 16px + var(--fd-gap, 8px));
+  font-size: 14px;
 }
 
-.App-link {
-  color: #61dafb;
+.dd-custom-kw-label {
+  color: var(--fd-color-text-secondary, #8a94ab);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
+/* FineDesign 的 .search-key 橙色仅作用于 .x-select-item-option-content 内部，
+   此处需显式补充颜色 */
+.dd-custom-kw .search-key {
+  white-space: nowrap;
+  color: var(--fd-color-warning-text, #F0A800);
+}
+
+.dd-custom-kw-sep {
+  color: var(--fd-color-text-secondary, #8a94ab);
+}
+
+.dd-custom-kw-clickable {
+  cursor: pointer;
+}
+.dd-custom-kw-clickable:hover {
+  background: var(--fd-color-fill-hover, #f5f7fa);
+}
+
+.group {
+  margin-bottom: 36px;
+}
+
+.group-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+
+.group-tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stack {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 28px;
+}
+
+@media (max-width: 900px) {
+  .stack {
+    grid-template-columns: 1fr;
   }
-  to {
-    transform: rotate(360deg);
-  }
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  min-width: 0; /* 防止 grid 子项因内容溢出撑宽列 */
+}
+
+/* 单选 / 多选 trigger：文字超出时省略号截断 */
+.x-select-single .x-select-selector .x-select-selection-item,
+.x-select-multiple .x-select-selector .x-select-selection-item {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.field-title {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.field-desc {
+  font-size: 13px;
+  color: var(--muted);
 }

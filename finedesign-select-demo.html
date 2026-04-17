@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FineDesign Select Demo</title>
+  <link crossorigin href="https://unpkg.com/react@17.0.2/umd/react.development.js">
+  <link crossorigin href="https://unpkg.com/react-dom@17.0.2/umd/react-dom.development.js">
+  <link crossorigin href="https://unpkg.com/@fx-ui/fine-design@1.19.0/dist/fine_design.css">
+  <script crossorigin src="https://unpkg.com/react@17.0.2/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17.0.2/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@fx-ui/fine-design@1.19.0/dist/fine_design.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f5f7fb;
+      padding: 40px;
+    }
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .page-header {
+      margin-bottom: 40px;
+      text-align: center;
+    }
+    .page-header h1 {
+      color: #1f2937;
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+    .page-header p {
+      color: #6b7280;
+      font-size: 16px;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 28px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    }
+    .card-title {
+      font-size: 18px;
+      color: #1f2937;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .card-desc {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 20px;
+    }
+    .select-wrapper {
+      width: 100%;
+    }
+    @media (max-width: 768px) {
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <h1>FineDesign Select 组件演示</h1>
+      <p>单选、多选、搜索、滚动加载</p>
+    </div>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title">单选 Select</div>
+        <div class="card-desc">支持搜索、滚动加载更多</div>
+        <div class="select-wrapper" id="single-select"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">多选 Select</div>
+        <div class="card-desc">支持全选、搜索、滚动加载更多</div>
+        <div class="select-wrapper" id="multi-select"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { useState, useMemo, useRef, useCallback } = React;
+    const { Select } = FineDesign;
+
+    const TOTAL_OPTIONS = 200;
+    const INITIAL_LOAD = 50;
+    const LOAD_MORE = 30;
+
+    const allOptions = Array.from({ length: TOTAL_OPTIONS }, (_, index) => {
+      const number = String(index + 1).padStart(3, '0');
+      return {
+        label: `选项 ${number} - 业务数据项`,
+        value: `value-${number}`,
+        title: `选项 ${number} - 业务数据项`
+      };
+    });
+
+    function SelectComponent({ multiple = false }) {
+      const selectRef = useRef(null);
+      const [visibleCount, setVisibleCount] = useState(INITIAL_LOAD);
+      const [searchValue, setSearchValue] = useState('');
+      const [value, setValue] = useState(multiple ? [] : undefined);
+
+      const filteredOptions = useMemo(() => {
+        if (!searchValue) {
+          return allOptions;
+        }
+        const lowerSearch = searchValue.toLowerCase();
+        return allOptions.filter(opt => 
+          opt.label.toLowerCase().includes(lowerSearch) || 
+          opt.value.toLowerCase().includes(lowerSearch)
+        );
+      }, [searchValue]);
+
+      const visibleOptions = useMemo(() => {
+        return filteredOptions.slice(0, visibleCount);
+      }, [filteredOptions, visibleCount]);
+
+      const handlePopupScroll = useCallback((e) => {
+        const target = e.currentTarget;
+        const reachedBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 20;
+        if (reachedBottom && visibleCount < filteredOptions.length) {
+          setVisibleCount(prev => Math.min(prev + LOAD_MORE, filteredOptions.length));
+        }
+      }, [filteredOptions.length, visibleCount]);
+
+      const handleSearch = useCallback((val) => {
+        setSearchValue(val);
+        setVisibleCount(INITIAL_LOAD);
+      }, []);
+
+      const handleDropdownVisibleChange = useCallback((open) => {
+        if (open) {
+          setVisibleCount(INITIAL_LOAD);
+        }
+      }, []);
+
+      return (
+        <div>
+          <Select
+            ref={selectRef}
+            style={{ width: '100%' }}
+            placeholder={multiple ? '请选择多个选项' : '请选择一个选项'}
+            multiple={multiple}
+            checkable={multiple}
+            hasCheckAll={multiple ? { label: '全选' } : undefined}
+            showSearch
+            searchValue={searchValue}
+            filterOption={false}
+            options={visibleOptions}
+            labelInValue
+            value={value}
+            onSearch={handleSearch}
+            onPopupScroll={handlePopupScroll}
+            onDropdownVisibleChange={handleDropdownVisibleChange}
+            onChange={setValue}
+          />
+          <div style={{ marginTop: '12px', fontSize: '13px', color: '#9ca3af' }}>
+            已加载 {visibleOptions.length} / {filteredOptions.length} 条
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<SelectComponent multiple={false} />, document.getElementById('single-select'));
+    ReactDOM.render(<SelectComponent multiple={true} />, document.getElementById('multi-select'));
+  </script>
+</body>
+</html>
