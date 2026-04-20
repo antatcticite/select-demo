@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Select, LocaleProvider } from '@fx-ui/fine-design';
 import zhCN from '@fx-ui/fine-design/es/locale/zh_CN';
 import '@fx-ui/fine-design/dist/fine_design.css';
@@ -9,7 +10,14 @@ const cities = ['上海', '南京', '北京', '无锡'];
 const companyPrefixes = ['新瑞', '恒达', '汇智', '融创', '科源', '华讯', '创智', '金盛', '盛达', '恒辉'];
 const companyTypes = ['科技有限公司', '贸易有限公司', '信息技术有限公司', '实业有限公司', '电子有限公司'];
 
-const baseOptions = Array.from({ length: 80 }, (_, index) => {
+const separatorOptions = [
+  { label: '测试 空格 分隔', value: 'test-space-1', title: '测试 空格 分隔' },
+  { label: '测试,逗号,分隔', value: 'test-comma-1', title: '测试,逗号,分隔' },
+  { label: '测试;分号;分隔', value: 'test-semicolon-1', title: '测试;分号;分隔' },
+  { label: '测试, 混合 分隔; 测试', value: 'test-mix-1', title: '测试, 混合 分隔; 测试' },
+];
+
+const normalOptions = Array.from({ length: 80 }, (_, index) => {
   const number = String(index + 1).padStart(2, '0');
   const city = cities[index % cities.length];
   const prefix = companyPrefixes[index % companyPrefixes.length];
@@ -17,6 +25,8 @@ const baseOptions = Array.from({ length: 80 }, (_, index) => {
   const companyName = `${city}${prefix}${type}`;
   return { label: companyName, value: `company-${number}`, title: companyName };
 });
+
+const baseOptions = [...separatorOptions, ...normalOptions];
 
 // 将匹配的 token 包裹在 <mark> 中
 function highlightText(text, tokens) {
@@ -40,11 +50,14 @@ function highlightText(text, tokens) {
 // ─────────────────────────────────────────────────────
 // 共用：精准匹配过滤 + 批量粘贴的 state / effect 逻辑
 // ─────────────────────────────────────────────────────
-function useBatchSearch(allOptions, multiple) {
+function useBatchSearch(allOptions, multiple, chipMode = false) {
   const [searchValue, setSearchValue] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [isOpen, setIsOpen] = useState(false);
   const [batchKeywords, setBatchKeywords] = useState([]);
+  const isPasteModeRef = useRef(false);
+  const pasteJoinedRef = useRef(''); // 粘贴时的原始拼接文本，用于识别"新增后缀"
+  const skipNextSearchRef = useRef(false); // paste 后忽略 FineDesign 触发的首次 onSearch 回调
 
   const activeKeywords = useMemo(() => {
     if (batchKeywords.length) return batchKeywords;
@@ -91,7 +104,7 @@ function useBatchSearch(allOptions, multiple) {
     if (!isOpen) return;
     const onPaste = (e) => {
       if (e.target.tagName !== 'INPUT') return;
-      const text = (e.clipboardData ?? window.clipboardData)?.getData('text') ?? '';
+      const text = e.clipboardData?.getData('text') ?? '';
       const lines = text.split(/\r?\n/).map(t => t.trim()).filter(Boolean);
       if (lines.length <= 1) return;
       e.preventDefault();
@@ -100,7 +113,16 @@ function useBatchSearch(allOptions, multiple) {
         setBatchKeywords([]);
       } else {
         setBatchKeywords(lines);
-        setSearchValue(lines.join(', '));
+        if (chipMode) {
+          setSearchValue(' ');   // 非空占位符，让 FD 进入"搜索模式"使 checkAllContent 生效
+          pasteJoinedRef.current = '';
+          skipNextSearchRef.current = true;
+        } else {
+          const joined = lines.join(', ');
+          setSearchValue(joined);
+          pasteJoinedRef.current = joined;
+        }
+        isPasteModeRef.current = true;
       }
       setVisibleCount(PAGE_SIZE);
     };
@@ -109,10 +131,27 @@ function useBatchSearch(allOptions, multiple) {
   }, [isOpen, multiple]);
 
   const handleSearch = useCallback((next) => {
-    setBatchKeywords([]);
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
+      // chip 模式下 FD 可能回调 onSearch('') 覆盖空格占位符，忽略空值回调
+      if (!chipMode || next.trim()) setSearchValue(next);
+      setVisibleCount(PAGE_SIZE);
+      return;
+    }
+    if (!next.trim()) {
+      setBatchKeywords([]);
+      isPasteModeRef.current = false;
+      pasteJoinedRef.current = '';
+    } else if (isPasteModeRef.current) {
+      // 粘贴模式：batchKeywords 不变，避免逗号拆分误伤 label 本身含逗号的选项
+      // 用户手动追加的内容会在 commit 时从末尾提取
+    } else {
+      setBatchKeywords([]);
+    }
     setSearchValue(next);
     setVisibleCount(PAGE_SIZE);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chipMode]);
 
   const handlePopupScroll = useCallback((e, totalLen) => {
     const t = e.currentTarget;
@@ -121,10 +160,21 @@ function useBatchSearch(allOptions, multiple) {
     }
   }, []);
 
+  const removeKeyword = useCallback((kw) => {
+    const remaining = batchKeywordsRef.current.filter(k => k !== kw);
+    if (remaining.length === 0) {
+      setSearchValue('');
+      isPasteModeRef.current = false;
+      pasteJoinedRef.current = '';
+    }
+    setBatchKeywords(remaining);
+  }, []);
+
   const reset = useCallback(() => {
     setSearchValue('');
     setBatchKeywords([]);
     setVisibleCount(PAGE_SIZE);
+    isPasteModeRef.current = false;
   }, []);
 
   return {
@@ -133,9 +183,83 @@ function useBatchSearch(allOptions, multiple) {
     isOpen, setIsOpen,
     batchKeywords, setBatchKeywords,
     activeKeywords, filteredOptions, visibleOptions,
-    searchValueRef, batchKeywordsRef,
-    handleSearch, handlePopupScroll, reset,
+    searchValueRef, batchKeywordsRef, pasteJoinedRef,
+    handleSearch, handlePopupScroll, reset, removeKeyword,
   };
+}
+
+// 粘贴的关键词以可删除 chip 展示，单行显示，超出折叠为 +N
+function BatchKwChips({ keywords, onRemove }) {
+  const rowRef = useRef(null);
+  const [maxVisible, setMaxVisible] = useState(null); // null = 未测量，先渲染全部
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row || !keywords.length) { setMaxVisible(null); return; }
+
+    const chips = [...row.querySelectorAll('[data-chip]')];
+    if (!chips.length) return;
+
+    const containerWidth = row.offsetWidth;
+    const containerLeft = row.getBoundingClientRect().left;
+    const BADGE_W = 40; // "+N" badge 占用宽度估算
+
+    // 所有 chip 都放得下 → 不需要 badge
+    const lastRight = chips[chips.length - 1].getBoundingClientRect().right - containerLeft;
+    if (lastRight <= containerWidth + 1) {
+      setMaxVisible(chips.length);
+      return;
+    }
+
+    // 保留 badge 空间，找出能放下的最多数量
+    const limit = containerWidth - BADGE_W;
+    let count = 0;
+    for (const chip of chips) {
+      if (chip.getBoundingClientRect().right - containerLeft <= limit + 1) count++;
+      else break;
+    }
+    setMaxVisible(Math.max(1, count));
+  }, [keywords]);
+
+  if (!keywords?.length) return null;
+
+  const shown = keywords.slice(0, maxVisible ?? keywords.length);
+  const overflow = keywords.length - shown.length;
+
+  return (
+    <div className="dd-batch-chips-in-search" ref={rowRef}>
+      {shown.map(kw => (
+        <span key={kw} data-chip className="dd-batch-chip">
+          <span className="dd-batch-chip-text">{kw}</span>
+          <span
+            className="dd-batch-chip-remove"
+            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onRemove(kw); }}
+          >×</span>
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="dd-batch-chip-overflow">+{overflow}</span>
+      )}
+    </div>
+  );
+}
+
+// 下拉中的自定义值：以 tag chip 展示，点击整行一起添加
+function CustomKwTagRow({ keywords, onClickAll }) {
+  if (!keywords || keywords.length === 0) return null;
+  return (
+    <div
+      className="dd-custom-tag-row dd-custom-tag-row-clickable"
+      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onClickAll(); }}
+    >
+      <span className="dd-custom-kw-label">自定义值：</span>
+      <div className="dd-custom-tag-list">
+        {keywords.map(kw => (
+          <span key={kw} className="dd-custom-tag-chip">{kw}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // "自定义值：xxx" 提示行（仅 CustomValueSelectCard 使用）
@@ -173,7 +297,7 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
   const {
     searchValue, isOpen, setIsOpen,
     activeKeywords, filteredOptions, visibleOptions,
-    searchValueRef, batchKeywordsRef,
+    searchValueRef, batchKeywordsRef, pasteJoinedRef,
     handleSearch, handlePopupScroll, reset,
   } = useBatchSearch(allOptions, multiple);
 
@@ -186,9 +310,17 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
   );
 
   const commit = useCallback(() => {
-    const keywords = batchKeywordsRef.current.length
-      ? batchKeywordsRef.current
-      : searchValueRef.current.trim() ? [searchValueRef.current.trim()] : [];
+    let keywords;
+    if (batchKeywordsRef.current.length) {
+      // 粘贴模式：用原始 batchKeywords + 用户在末尾手动追加的新内容（后缀）
+      const suffix = searchValueRef.current.startsWith(pasteJoinedRef.current)
+        ? searchValueRef.current.slice(pasteJoinedRef.current.length).replace(/^[,，\s]+/, '').trim()
+        : '';
+      keywords = suffix ? [...batchKeywordsRef.current, suffix] : batchKeywordsRef.current;
+    } else {
+      keywords = searchValueRef.current.trim() ? [searchValueRef.current.trim()] : [];
+    }
+    if (!keywords.length) return;
     if (!keywords.length) return;
 
     const toAdd = multiple ? keywords : [keywords[0]];
@@ -271,6 +403,7 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
         multiple={multiple}
         checkable={multiple}
         hasCheckAll={multiple ? true : undefined}
+        checkAllContent={multiple && activeKeywords.length > 0 ? '搜索结果全选' : undefined}
         showSearch
         searchValue={searchValue}
         searchInputPlaceholder={
@@ -328,7 +461,7 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
 
   const {
     searchValue, setIsOpen,
-    batchKeywordsRef,
+    batchKeywordsRef, activeKeywords,
     filteredOptions, visibleOptions,
     handleSearch, handlePopupScroll, reset,
     isOpen,
@@ -372,6 +505,7 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
         multiple={multiple}
         checkable={multiple}
         hasCheckAll={multiple ? true : undefined}
+        checkAllContent={multiple && activeKeywords.length > 0 ? '搜索结果全选' : undefined}
         showSearch
         searchValue={searchValue}
         searchInputPlaceholder={
@@ -398,6 +532,181 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
           if (multiple) setValue((next || []).map(normalize));
           else setValue(next ? normalize(next) : undefined);
         }}
+      />
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// 第三组：Tags 回填模式 · 支持自定义值 · 精准匹配
+// ─────────────────────────────────────────────────────
+function TagsSelectCard({ title, description }) {
+  const [customOptions, setCustomOptions] = useState([]);
+  const [value, setValue] = useState([]);
+
+  const allOptions = useMemo(() => [...customOptions, ...baseOptions], [customOptions]);
+  const allOptionsRef = useRef(allOptions);
+  allOptionsRef.current = allOptions;
+
+  const {
+    searchValue, isOpen, setIsOpen,
+    batchKeywords,
+    activeKeywords, filteredOptions, visibleOptions,
+    searchValueRef, batchKeywordsRef, pasteJoinedRef,
+    handleSearch, handlePopupScroll, reset, removeKeyword,
+  } = useBatchSearch(allOptions, true, true);
+
+  // 找到 FineDesign 搜索框内部的 .input-content，供 portal 使用
+  const wrapperRef = useRef(null);
+  const [inputContent, setInputContent] = useState(null);
+  useLayoutEffect(() => {
+    if (!isOpen) { setInputContent(null); return; }
+    const el = wrapperRef.current?.querySelector(
+      '.x-select-dropdown-search-input .input-content'
+    );
+    setInputContent(prev => (prev === el ? prev : (el ?? null)));
+  }, [isOpen]);
+
+  const newCustomKeywords = useMemo(
+    () => activeKeywords.filter(kw =>
+      !allOptions.some(o => o.label.toLowerCase() === kw.toLowerCase())
+    ),
+    [activeKeywords, allOptions],
+  );
+
+  const commit = useCallback(() => {
+    let keywords;
+    if (batchKeywordsRef.current.length) {
+      const suffix = searchValueRef.current.startsWith(pasteJoinedRef.current)
+        ? searchValueRef.current.slice(pasteJoinedRef.current.length).replace(/^[,，\s]+/, '').trim()
+        : '';
+      keywords = suffix ? [...batchKeywordsRef.current, suffix] : batchKeywordsRef.current;
+    } else {
+      keywords = searchValueRef.current.trim() ? [searchValueRef.current.trim()] : [];
+    }
+    if (!keywords.length) return;
+
+    const currentAll = allOptionsRef.current;
+    const newOpts = keywords
+      .filter(kw => !currentAll.some(o => o.label.toLowerCase() === kw.toLowerCase()))
+      .map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
+    if (newOpts.length) setCustomOptions(prev => [...prev, ...newOpts]);
+
+    const toSelect = keywords.map(kw => {
+      const found = currentAll.find(o => o.label.toLowerCase() === kw.toLowerCase());
+      return found ? { label: found.label, value: found.value } : { label: kw, value: `custom:${kw}` };
+    });
+    setValue(prev => {
+      const prevVals = new Set((prev || []).map(v => v.value));
+      return [...(prev || []), ...toSelect.filter(s => !prevVals.has(s.value))];
+    });
+    reset();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reset]);
+
+
+  const newCustomKeywordsRef = useRef(newCustomKeywords);
+  newCustomKeywordsRef.current = newCustomKeywords;
+
+  // 仅添加自定义值（不选中精准匹配的已有选项）
+  const commitCustomOnly = useCallback(() => {
+    const kws = newCustomKeywordsRef.current;
+    if (!kws.length) return;
+    const newOpts = kws.map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
+    setCustomOptions(prev => [...prev, ...newOpts.filter(o => !prev.some(p => p.value === o.value))]);
+    setValue(prev => {
+      const prevVals = new Set((prev || []).map(v => v.value));
+      return [...(prev || []), ...newOpts.filter(o => !prevVals.has(o.value))];
+    });
+    reset();
+  }, [reset]);
+
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e) => {
+      // chips 存在时禁用字符输入与删除，保留 × 按钮作为唯一清空入口
+      if (batchKeywordsRef.current.length > 0 &&
+          (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        return;
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (batchKeywordsRef.current.length > 0 || searchValueRef.current.trim()) {
+        commitRef.current();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  return (
+    <section className="field">
+      <div className="field-title">{title}</div>
+      <div className="field-desc">{description}</div>
+      <Select
+        style={{ width: 522 }}
+        placeholder="请选择"
+        multiple
+        tags
+        checkable
+        hasCheckAll
+        checkAllContent={activeKeywords.length > 0 ? '搜索结果全选' : undefined}
+        maxTagCount="responsive"
+        showSearch
+        searchValue={searchValue}
+        searchInputPlaceholder="粘贴关键词（换行分隔），Enter 批量添加并选中"
+        filterOption={false}
+        allowClear
+        options={visibleOptions}
+        labelInValue
+        value={value}
+        onSearch={handleSearch}
+        onPopupScroll={(e) => handlePopupScroll(e, filteredOptions.length)}
+        onDropdownVisibleChange={(open) => {
+          setIsOpen(open);
+          if (!open) {
+            const selectedVals = new Set((value || []).map(v => v.value));
+            setCustomOptions(prev => prev.filter(o => selectedVals.has(o.value)));
+            reset();
+          }
+        }}
+        onChange={(next) => {
+          const normalize = (v) => ({
+            ...v,
+            label: allOptions.find(o => o.value === v.value)?.label ?? String(v.value),
+          });
+          setValue((next || []).map(normalize));
+        }}
+        dropdownRender={(menu) => (
+          <div
+            className={`dd-dropdown-flex${batchKeywords.length > 0 ? ' dd-batch-mode' : ''}`}
+            ref={wrapperRef}
+          >
+            {menu}
+            {inputContent && batchKeywords.length > 0
+              ? createPortal(
+                  <>
+                    <BatchKwChips keywords={batchKeywords} onRemove={removeKeyword} />
+                    <span
+                      className="dd-batch-chips-clear"
+                      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); reset(); }}
+                    >×</span>
+                  </>,
+                  inputContent
+                )
+              : null}
+            <CustomKwTagRow
+              keywords={newCustomKeywords}
+              onClickAll={commitCustomOnly}
+            />
+          </div>
+        )}
       />
     </section>
   );
@@ -453,6 +762,19 @@ function App() {
               title="多选"
               description="粘贴多行关键词；仅精准命中的选项显示，不支持新增自定义值。"
               multiple
+            />
+          </div>
+        </div>
+
+        <div className="group">
+          <div className="group-label">
+            <span className="group-tag">第三组</span>
+            Tag 回填 · 精准命中选中已有选项 · 不命中则新增为自定义值
+          </div>
+          <div className="stack">
+            <TagsSelectCard
+              title="多选（Tag 回填）"
+              description="选中项以 tag 形式展示；下拉中自定义值也以 tag chip 显示，点击可单独添加。"
             />
           </div>
         </div>

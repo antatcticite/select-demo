@@ -88,6 +88,145 @@ body {
   background: var(--fd-color-fill-hover, #f5f7fa);
 }
 
+/* ── 第三组 Tag 模式：chips 注入到 .input-content 内，与 icon/input 同行 ── */
+
+/* 将 .input-content 从绝对定位 block 改为 flex，让 chips 作为 flex 子项 */
+.dd-batch-mode .x-select-dropdown-search-input .input-content {
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* icon：绝对定位 → 静态 flex 子项 */
+.dd-batch-mode .x-select-dropdown-search-input .input-content .input-prefix {
+  position: static !important;
+  flex-shrink: 0;
+  order: 0;
+}
+
+/* chips 容器：在 icon(0) 与 input(2) 之间 */
+.dd-batch-chips-in-search {
+  order: 1;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* input：去掉为绝对 icon 保留的 padding-left，排在 chips 后 */
+.dd-batch-mode .x-select-dropdown-search-input .input-content input {
+  order: 2;
+  flex: 0 1 60px;
+  min-width: 40px;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+  caret-color: transparent;
+}
+
+/* chips 存在时隐藏 placeholder */
+.dd-batch-mode .x-select-dropdown-search-input input::placeholder {
+  opacity: 0;
+}
+
+/* batch 模式隐藏 FD 原生 clear 按钮，改用我们自己的 */
+.dd-batch-mode .x-select-dropdown-search-input .input-content .input-suffix {
+  display: none !important;
+}
+
+.dd-batch-chips-clear {
+  order: 3;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  cursor: pointer;
+  color: var(--fd-color-text-quaternary, #bfc8d9);
+  font-size: 14px;
+  line-height: 1;
+}
+.dd-batch-chips-clear:hover {
+  color: var(--fd-color-text-secondary, #8a94ab);
+}
+
+.dd-batch-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  background: var(--fd-color-fill-secondary, #f5f5f5);
+  border: 1px solid var(--fd-border-color, #e0e4ef);
+  border-radius: var(--fd-border-radius-sm, 3px);
+  font-size: 12px;
+  color: var(--fd-color-text, #1f2937);
+  white-space: nowrap;
+}
+
+.dd-batch-chip-text {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dd-batch-chip-remove {
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.45;
+  line-height: 1;
+  font-size: 11px;
+}
+.dd-batch-chip-remove:hover { opacity: 1; }
+
+.dd-batch-chip-overflow {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fd-color-text-secondary, #8a94ab);
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+
+/* dd-custom-tag-row 也参与排序 */
+.dd-dropdown-flex > .dd-custom-tag-row { order: 1; }
+
+/* ── 第三组 Tag 模式：下拉中自定义值的 chip 行 ── */
+.dd-custom-tag-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px var(--fd-padding);
+  min-height: var(--fd-control-height);
+}
+
+.dd-custom-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dd-custom-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fd-color-warning-text, #F0A800);
+  white-space: nowrap;
+}
+
+.dd-custom-tag-row-clickable {
+  cursor: pointer;
+}
+
+.dd-custom-tag-row-clickable:hover {
+  background: var(--fd-color-fill-hover, #f5f7fa);
+}
+
 .options-editor {
   margin-bottom: 32px;
   display: grid;
