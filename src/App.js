@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Select, LocaleProvider } from '@fx-ui/fine-design';
+import { Select, Tag, LocaleProvider } from '@fx-ui/fine-design';
 import zhCN from '@fx-ui/fine-design/es/locale/zh_CN';
 import '@fx-ui/fine-design/dist/fine_design.css';
 import './App.css';
@@ -26,7 +26,31 @@ const normalOptions = Array.from({ length: 80 }, (_, index) => {
   return { label: companyName, value: `company-${number}`, title: companyName };
 });
 
-const baseOptions = [...separatorOptions, ...normalOptions];
+const baseOptions = (() => {
+  const seen = new Set();
+  const result = [];
+  for (const opt of [...separatorOptions, ...normalOptions]) {
+    if (!seen.has(opt.value)) {
+      seen.add(opt.value);
+      result.push(opt);
+    }
+  }
+  return result;
+})();
+
+// 按 value 和 label 双重去重（label 为 JSX 时降级用 title/value）
+function dedupeOptions(opts) {
+  const seenVals = new Set();
+  const seenLabels = new Set();
+  return opts.filter(opt => {
+    if (seenVals.has(opt.value)) return false;
+    const labelKey = typeof opt.label === 'string' ? opt.label : (opt.title ?? opt.value);
+    if (seenLabels.has(labelKey)) return false;
+    seenVals.add(opt.value);
+    seenLabels.add(labelKey);
+    return true;
+  });
+}
 
 // 将匹配的 token 包裹在 <mark> 中
 function highlightText(text, tokens) {
@@ -66,29 +90,25 @@ function useBatchSearch(allOptions, multiple, chipMode = false) {
   }, [batchKeywords, searchValue]);
 
   const filteredOptions = useMemo(() => {
-    if (!activeKeywords.length) return allOptions;
-
-    if (batchKeywords.length > 0) {
-      // 批量粘贴模式：精准完整匹配 + label 去重
+    let result;
+    if (!activeKeywords.length) {
+      result = allOptions;
+    } else if (batchKeywords.length > 0) {
+      // 批量粘贴模式：精准完整匹配
       const kwSet = new Set(batchKeywords.map(k => k.toLowerCase()));
-      const seen = new Set();
-      return allOptions.filter(opt => {
-        const lower = opt.label.toLowerCase();
-        if (!kwSet.has(lower) || seen.has(lower)) return false;
-        seen.add(lower);
-        return true;
-      });
+      result = allOptions.filter(opt => kwSet.has(opt.label.toLowerCase()));
     } else {
       // 普通搜索模式：子串包含匹配
       const kw = searchValue.trim().toLowerCase();
-      return allOptions.filter(opt =>
+      result = allOptions.filter(opt =>
         `${opt.label} ${opt.value}`.toLowerCase().includes(kw)
       );
     }
+    return dedupeOptions(result);
   }, [activeKeywords, batchKeywords, searchValue, allOptions]);
 
   const visibleOptions = useMemo(
-    () => filteredOptions.slice(0, visibleCount).map(opt => ({
+    () => dedupeOptions(filteredOptions).slice(0, visibleCount).map(opt => ({
       ...opt,
       label: highlightText(opt.label, activeKeywords),
     })),
@@ -143,8 +163,9 @@ function useBatchSearch(allOptions, multiple, chipMode = false) {
       isPasteModeRef.current = false;
       pasteJoinedRef.current = '';
     } else if (isPasteModeRef.current) {
-      // 粘贴模式：batchKeywords 不变，避免逗号拆分误伤 label 本身含逗号的选项
-      // 用户手动追加的内容会在 commit 时从末尾提取
+      // 粘贴模式：忽略非空更新，保持搜索框锁定（防止字符被渲染出来）
+      setVisibleCount(PAGE_SIZE);
+      return;
     } else {
       setBatchKeywords([]);
     }
@@ -289,8 +310,10 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
   const [customOptions, setCustomOptions] = useState([]);
   const [value, setValue] = useState(multiple ? [] : undefined);
 
-  // 自定义值置顶
-  const allOptions = useMemo(() => [...customOptions, ...baseOptions], [customOptions]);
+  // 自定义值置顶，确保无重复
+  const allOptions = useMemo(() => {
+    return dedupeOptions([...customOptions, ...baseOptions]);
+  }, [customOptions]);
   const allOptionsRef = useRef(allOptions);
   allOptionsRef.current = allOptions;
 
@@ -379,6 +402,11 @@ function CustomValueSelectCard({ title, description, multiple = false }) {
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e) => {
+      if (batchKeywordsRef.current.length > 0 &&
+          (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        return;
+      }
       if (e.key !== 'Enter') return;
       e.preventDefault();
       e.stopPropagation();
@@ -473,6 +501,11 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e) => {
+      if (batchKeywordsRef.current.length > 0 &&
+          (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        return;
+      }
       if (e.key !== 'Enter') return;
       e.preventDefault();
       e.stopPropagation();
@@ -538,41 +571,59 @@ function PreciseSearchSelectCard({ title, description, multiple = false }) {
 }
 
 // ─────────────────────────────────────────────────────
-// 第三组：Tags 回填模式 · 支持自定义值 · 精准匹配
+// 第三/四组：Tags 回填模式（参数化）
+//   multiple   - true: 多选 tags 模式；false: 普通单选
+//   allowCustom - true: 不命中时新增自定义值；false: 仅精准命中可选
 // ─────────────────────────────────────────────────────
-function TagsSelectCard({ title, description }) {
+function TagsSelectCard({ title, description, multiple = true, allowCustom = true }) {
   const [customOptions, setCustomOptions] = useState([]);
-  const [value, setValue] = useState([]);
+  const [value, setValue] = useState(multiple ? [] : undefined);
 
-  const allOptions = useMemo(() => [...customOptions, ...baseOptions], [customOptions]);
+  const allOptions = useMemo(
+    () => dedupeOptions([...customOptions, ...baseOptions]),
+    [customOptions],
+  );
   const allOptionsRef = useRef(allOptions);
   allOptionsRef.current = allOptions;
 
+  // chipMode 仅在多选时有意义（单选粘贴只取第一行）
   const {
     searchValue, isOpen, setIsOpen,
     batchKeywords,
     activeKeywords, filteredOptions, visibleOptions,
     searchValueRef, batchKeywordsRef, pasteJoinedRef,
     handleSearch, handlePopupScroll, reset, removeKeyword,
-  } = useBatchSearch(allOptions, true, true);
+  } = useBatchSearch(allOptions, multiple, multiple);
 
-  // 找到 FineDesign 搜索框内部的 .input-content，供 portal 使用
+  // "全部"tag：仅多选时有效
+  const isAllSelected = useMemo(
+    () => multiple && Array.isArray(value) && visibleOptions.length > 0 &&
+          visibleOptions.every(o => value.some(v => v.value === o.value)),
+    [multiple, visibleOptions, value],
+  );
+
+  // portal 目标节点（chipMode = multiple）
   const wrapperRef = useRef(null);
   const [inputContent, setInputContent] = useState(null);
   useLayoutEffect(() => {
-    if (!isOpen) { setInputContent(null); return; }
+    if (!isOpen || !multiple) { setInputContent(null); return; }
     const el = wrapperRef.current?.querySelector(
       '.x-select-dropdown-search-input .input-content'
     );
     setInputContent(prev => (prev === el ? prev : (el ?? null)));
-  }, [isOpen]);
+  }, [isOpen, multiple]);
 
+  // 未命中已有选项的关键词（仅 allowCustom 时使用）
   const newCustomKeywords = useMemo(
-    () => activeKeywords.filter(kw =>
-      !allOptions.some(o => o.label.toLowerCase() === kw.toLowerCase())
-    ),
-    [activeKeywords, allOptions],
+    () => allowCustom
+      ? activeKeywords.filter(kw =>
+          !allOptions.some(o => o.label.toLowerCase() === kw.toLowerCase())
+        )
+      : [],
+    [allowCustom, activeKeywords, allOptions],
   );
+  const newCustomKeywordsRef = useRef(newCustomKeywords);
+  newCustomKeywordsRef.current = newCustomKeywords;
 
   const commit = useCallback(() => {
     let keywords;
@@ -585,49 +636,93 @@ function TagsSelectCard({ title, description }) {
       keywords = searchValueRef.current.trim() ? [searchValueRef.current.trim()] : [];
     }
     if (!keywords.length) return;
+    if (!multiple) keywords = [keywords[0]]; // 单选只取第一个
 
     const currentAll = allOptionsRef.current;
-    const newOpts = keywords
-      .filter(kw => !currentAll.some(o => o.label.toLowerCase() === kw.toLowerCase()))
-      .map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
-    if (newOpts.length) setCustomOptions(prev => [...prev, ...newOpts]);
 
-    const toSelect = keywords.map(kw => {
-      const found = currentAll.find(o => o.label.toLowerCase() === kw.toLowerCase());
-      return found ? { label: found.label, value: found.value } : { label: kw, value: `custom:${kw}` };
-    });
-    setValue(prev => {
-      const prevVals = new Set((prev || []).map(v => v.value));
-      return [...(prev || []), ...toSelect.filter(s => !prevVals.has(s.value))];
-    });
+    if (allowCustom) {
+      const newOpts = keywords
+        .filter(kw => !currentAll.some(o => o.label.toLowerCase() === kw.toLowerCase()))
+        .map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
+      if (newOpts.length) setCustomOptions(prev => [...prev, ...newOpts]);
+
+      const toSelect = keywords.map(kw => {
+        const found = currentAll.find(o => o.label.toLowerCase() === kw.toLowerCase());
+        return found ? { label: found.label, value: found.value } : { label: kw, value: `custom:${kw}` };
+      });
+      if (multiple) {
+        setValue(prev => {
+          const prevVals = new Set((prev || []).map(v => v.value));
+          return [...(prev || []), ...toSelect.filter(s => !prevVals.has(s.value))];
+        });
+      } else {
+        setValue(toSelect[0] ?? undefined);
+      }
+    } else {
+      // 仅选中精准匹配的选项，不新增自定义值
+      const toSelect = keywords
+        .map(kw => {
+          const found = currentAll.find(o => o.label.toLowerCase() === kw.toLowerCase());
+          return found ? { label: found.label, value: found.value } : null;
+        })
+        .filter(Boolean);
+      if (!toSelect.length) { reset(); return; }
+      if (multiple) {
+        setValue(prev => {
+          const prevVals = new Set((prev || []).map(v => v.value));
+          return [...(prev || []), ...toSelect.filter(s => !prevVals.has(s.value))];
+        });
+      } else {
+        setValue(toSelect[0]);
+      }
+    }
     reset();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reset]);
+  }, [multiple, allowCustom, reset]);
 
-
-  const newCustomKeywordsRef = useRef(newCustomKeywords);
-  newCustomKeywordsRef.current = newCustomKeywords;
-
-  // 仅添加自定义值（不选中精准匹配的已有选项）
+  // 仅添加自定义值行（整行点击，不触及精准匹配项）
   const commitCustomOnly = useCallback(() => {
+    if (!allowCustom) return;
     const kws = newCustomKeywordsRef.current;
     if (!kws.length) return;
-    const newOpts = kws.map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
+    const toAdd = multiple ? kws : [kws[0]];
+    const newOpts = toAdd.map(kw => ({ label: kw, value: `custom:${kw}`, title: kw }));
     setCustomOptions(prev => [...prev, ...newOpts.filter(o => !prev.some(p => p.value === o.value))]);
-    setValue(prev => {
-      const prevVals = new Set((prev || []).map(v => v.value));
-      return [...(prev || []), ...newOpts.filter(o => !prevVals.has(o.value))];
-    });
+    if (multiple) {
+      setValue(prev => {
+        const prevVals = new Set((prev || []).map(v => v.value));
+        return [...(prev || []), ...newOpts.filter(o => !prevVals.has(o.value))];
+      });
+    } else {
+      setValue(newOpts[0]);
+    }
     reset();
-  }, [reset]);
+  }, [allowCustom, multiple, reset]);
 
   const commitRef = useRef(commit);
   commitRef.current = commit;
 
+  // 追踪"全选"激活状态（多选专用）
+  const isCheckAllActiveRef = useRef(false);
+
+  useEffect(() => {
+    if (!multiple || !isCheckAllActiveRef.current) return;
+    setValue(prev => {
+      const prevVals = new Set(prev.map(v => v.value));
+      const toAdd = visibleOptions
+        .filter(o => !prevVals.has(o.value))
+        .map(o => ({
+          value: o.value,
+          label: allOptionsRef.current.find(a => a.value === o.value)?.label ?? String(o.value),
+        }));
+      return toAdd.length ? [...prev, ...toAdd] : prev;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleOptions]);
+
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e) => {
-      // chips 存在时禁用字符输入与删除，保留 × 按钮作为唯一清空入口
       if (batchKeywordsRef.current.length > 0 &&
           (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
         e.preventDefault();
@@ -645,70 +740,135 @@ function TagsSelectCard({ title, description }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  const normalizeVal = useCallback((v) => ({
+    ...v,
+    label: allOptions.find(o => o.value === v.value)?.label ?? String(v.value),
+  }), [allOptions]);
+
   return (
     <section className="field">
       <div className="field-title">{title}</div>
       <div className="field-desc">{description}</div>
-      <Select
-        style={{ width: 522 }}
-        placeholder="请选择"
-        multiple
-        tags
-        checkable
-        hasCheckAll
-        checkAllContent={activeKeywords.length > 0 ? '搜索结果全选' : undefined}
-        maxTagCount="responsive"
-        showSearch
-        searchValue={searchValue}
-        searchInputPlaceholder="粘贴关键词（换行分隔），Enter 批量添加并选中"
-        filterOption={false}
-        allowClear
-        options={visibleOptions}
-        labelInValue
-        value={value}
-        onSearch={handleSearch}
-        onPopupScroll={(e) => handlePopupScroll(e, filteredOptions.length)}
-        onDropdownVisibleChange={(open) => {
-          setIsOpen(open);
-          if (!open) {
-            const selectedVals = new Set((value || []).map(v => v.value));
-            setCustomOptions(prev => prev.filter(o => selectedVals.has(o.value)));
-            reset();
-          }
-        }}
-        onChange={(next) => {
-          const normalize = (v) => ({
-            ...v,
-            label: allOptions.find(o => o.value === v.value)?.label ?? String(v.value),
-          });
-          setValue((next || []).map(normalize));
-        }}
-        dropdownRender={(menu) => (
-          <div
-            className={`dd-dropdown-flex${batchKeywords.length > 0 ? ' dd-batch-mode' : ''}`}
-            ref={wrapperRef}
-          >
-            {menu}
-            {inputContent && batchKeywords.length > 0
-              ? createPortal(
-                  <>
-                    <BatchKwChips keywords={batchKeywords} onRemove={removeKeyword} />
-                    <span
-                      className="dd-batch-chips-clear"
-                      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); reset(); }}
-                    >×</span>
-                  </>,
-                  inputContent
-                )
-              : null}
-            <CustomKwTagRow
-              keywords={newCustomKeywords}
-              onClickAll={commitCustomOnly}
-            />
-          </div>
+      <div className="select-all-wrapper" style={{ width: 522 }}>
+        {isAllSelected && (
+          <span className="trigger-all-tag">
+            <Tag type="primary" closable={false}>全部</Tag>
+          </span>
         )}
-      />
+        <Select
+          style={{ width: '100%' }}
+          placeholder="请选择"
+          multiple={multiple || undefined}
+          tags={multiple || undefined}
+          checkable={multiple || undefined}
+          hasCheckAll={multiple || undefined}
+          checkAllContent={multiple && activeKeywords.length > 0 ? '搜索结果全选' : undefined}
+          maxTagCount={multiple ? 'responsive' : undefined}
+          showSearch
+          searchValue={searchValue}
+          searchInputPlaceholder={
+            multiple
+              ? '粘贴关键词（换行分隔），Enter 批量添加并选中'
+              : '粘贴关键词，Enter 添加并选中'
+          }
+          filterOption={false}
+          allowClear
+          options={visibleOptions}
+          labelInValue
+          value={value}
+          onSearch={(val) => { isCheckAllActiveRef.current = false; handleSearch(val); }}
+          onPopupScroll={(e) => handlePopupScroll(e, filteredOptions.length)}
+          onDropdownVisibleChange={(open) => {
+            setIsOpen(open);
+            if (!open) {
+              isCheckAllActiveRef.current = false;
+              if (allowCustom) {
+                const selectedVals = new Set(
+                  multiple
+                    ? (value || []).map(v => v.value)
+                    : value ? [value.value] : []
+                );
+                setCustomOptions(prev => prev.filter(o => selectedVals.has(o.value)));
+              }
+              reset();
+            }
+          }}
+          onChange={(next) => {
+            if (multiple) {
+              const normalized = (next || []).map(normalizeVal);
+              isCheckAllActiveRef.current = normalized.length > 0 &&
+                visibleOptions.every(o => normalized.some(n => n.value === o.value));
+              setValue(normalized);
+            } else {
+              setValue(next ? normalizeVal(next) : undefined);
+            }
+          }}
+          dropdownRender={(menu) => (
+            <div
+              className={`dd-dropdown-flex${batchKeywords.length > 0 ? ' dd-batch-mode' : ''}`}
+              ref={wrapperRef}
+            >
+              {menu}
+              {inputContent && batchKeywords.length > 0
+                ? createPortal(
+                    <>
+                      <BatchKwChips keywords={batchKeywords} onRemove={removeKeyword} />
+                      <span
+                        className="dd-batch-chips-clear"
+                        onMouseDown={e => { e.preventDefault(); e.stopPropagation(); reset(); }}
+                      >×</span>
+                    </>,
+                    inputContent
+                  )
+                : null}
+              {allowCustom && newCustomKeywords.length > 0 && (
+                <CustomKwTagRow keywords={newCustomKeywords} onClickAll={commitCustomOnly} />
+              )}
+            </div>
+          )}
+        />
+      </div>
     </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────
+// 简易折叠组件
+// ─────────────────────────────────────────────────────
+function CustomCollapse({ header, children }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="custom-collapse" style={{ marginBottom: 32 }}>
+      <div 
+        className="custom-collapse-header" 
+        onClick={() => setExpanded(!expanded)}
+        style={{ 
+          cursor: 'pointer', 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: 8,
+          color: '#6b7280',
+          fontSize: '14px',
+          fontWeight: 500,
+          padding: '12px 16px',
+          background: '#f9fafb',
+          borderRadius: '8px',
+          userSelect: 'none'
+        }}
+      >
+        <span style={{ 
+          fontSize: '10px',
+          transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+          transition: 'transform 0.2s'
+        }}>▶</span>
+        {header}
+      </div>
+      {expanded && (
+        <div className="custom-collapse-content" style={{ marginTop: 24, padding: '0 4px' }}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -766,18 +926,45 @@ function App() {
           </div>
         </div>
 
-        <div className="group">
-          <div className="group-label">
-            <span className="group-tag">第三组</span>
-            Tag 回填 · 精准命中选中已有选项 · 不命中则新增为自定义值
+        <CustomCollapse header="更多筛选器原型（第三/四组）">
+          <div className="group">
+            <div className="group-label">
+              <span className="group-tag">第三组</span>
+              Tag 回填 · 精准命中选中已有选项 · 不命中则新增为自定义值
+            </div>
+            <div className="stack">
+              <TagsSelectCard
+                title="单选"
+                description="粘贴后仅取第一行；命中已有选项则选中，否则回车新增为自定义值。"
+                multiple={false}
+              />
+              <TagsSelectCard
+                title="多选（Tag 回填）"
+                description="选中项以 tag 形式展示；下拉中自定义值也以 tag chip 显示，点击整行一起添加。"
+              />
+            </div>
           </div>
-          <div className="stack">
-            <TagsSelectCard
-              title="多选（Tag 回填）"
-              description="选中项以 tag 形式展示；下拉中自定义值也以 tag chip 显示，点击可单独添加。"
-            />
+
+          <div className="group">
+            <div className="group-label">
+              <span className="group-tag">第四组</span>
+              Tag 回填 · 仅精准命中项显示 · 不支持新增自定义值
+            </div>
+            <div className="stack">
+              <TagsSelectCard
+                title="单选"
+                description="粘贴后仅取第一行；仅精准命中的选项可选，不支持新增自定义值。"
+                multiple={false}
+                allowCustom={false}
+              />
+              <TagsSelectCard
+                title="多选（Tag 回填）"
+                description="粘贴多行关键词精准匹配；仅命中的选项显示，不支持新增自定义值。"
+                allowCustom={false}
+              />
+            </div>
           </div>
-        </div>
+        </CustomCollapse>
 
         <div className="options-editor">
           <div className="options-editor-label">选项列表（可编辑，复制后粘贴到上方 Select 中测试）</div>

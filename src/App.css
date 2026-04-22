@@ -227,6 +227,32 @@ body {
   background: var(--fd-color-fill-hover, #f5f7fa);
 }
 
+/* ── 第三组"全部" tag：绝对定位于触发器右侧，紧贴下拉箭头 ── */
+.select-all-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.trigger-all-tag {
+  position: absolute;
+  /* right = fd-padding(8) + fd-icon-size(16) + gap(6) = 30px */
+  right: calc(var(--fd-padding, 8px) + var(--fd-icon-size, 16px) + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  pointer-events: none; /* 点击穿透到 trigger */
+  line-height: 1;
+}
+
+.trigger-all-tag .x-tag {
+  margin: 0;
+}
+
+/* 给 selector 加 padding-right，让 tags 流排不延伸到"全部"下方 */
+.select-all-wrapper .x-select-selector {
+  padding-right: calc(var(--fd-padding, 8px) + var(--fd-icon-size, 16px) + var(--fd-padding, 8px) + 52px) !important;
+}
+
 .options-editor {
   margin-bottom: 32px;
   display: grid;
